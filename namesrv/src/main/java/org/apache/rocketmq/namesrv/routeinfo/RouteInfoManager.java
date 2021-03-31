@@ -113,7 +113,10 @@ public class RouteInfoManager {
             try {
                 this.lock.writeLock().lockInterruptibly();
 
+                //根据集群名称，获取该集群下所有broker的名称
                 Set<String> brokerNames = this.clusterAddrTable.get(clusterName);
+
+                //如果本次注册的集群名称为空，则新建一个集群名称，并将本次注册的broker加入
                 if (null == brokerNames) {
                     brokerNames = new HashSet<String>();
                     this.clusterAddrTable.put(clusterName, brokerNames);
@@ -122,8 +125,10 @@ public class RouteInfoManager {
 
                 boolean registerFirst = false;
 
+                //根据本次注册的broker名称，找到是否属于注册过的broker
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null == brokerData) {
+                    //本次的broker是新的，直接创建一个新实例
                     registerFirst = true;
                     brokerData = new BrokerData(clusterName, brokerName, new HashMap<Long, String>());
                     this.brokerAddrTable.put(brokerName, brokerData);
@@ -134,12 +139,15 @@ public class RouteInfoManager {
                 Iterator<Entry<Long, String>> it = brokerAddrsMap.entrySet().iterator();
                 while (it.hasNext()) {
                     Entry<Long, String> item = it.next();
+                    //对于拥有同样的ip、端口号的broker，代表是同一个broker，只有当brokerId发生变换时（主从切换，0为主，其他为从），才进行重新注册
                     if (null != brokerAddr && brokerAddr.equals(item.getValue()) && brokerId != item.getKey()) {
+                        //重新注册的逻辑：先删除旧的，再添加新的，其中只改变了身份
                         it.remove();
                     }
                 }
 
                 String oldAddr = brokerData.getBrokerAddrs().put(brokerId, brokerAddr);
+                //无论是新broker的注册，或者旧broker更换身份（主——》从 | 从-》主），都算
                 registerFirst = registerFirst || (null == oldAddr);
 
                 if (null != topicConfigWrapper
@@ -156,6 +164,7 @@ public class RouteInfoManager {
                     }
                 }
 
+                //刷新broker心跳信息
                 BrokerLiveInfo prevBrokerLiveInfo = this.brokerLiveTable.put(brokerAddr,
                     new BrokerLiveInfo(
                         System.currentTimeMillis(),
@@ -174,11 +183,15 @@ public class RouteInfoManager {
                     }
                 }
 
+                //对从broker进行处理
                 if (MixAll.MASTER_ID != brokerId) {
+                    //找到主broker
                     String masterAddr = brokerData.getBrokerAddrs().get(MixAll.MASTER_ID);
                     if (masterAddr != null) {
+                        //拿到主broker的心跳信息
                         BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.get(masterAddr);
                         if (brokerLiveInfo != null) {
+                            //设置结果
                             result.setHaServerAddr(brokerLiveInfo.getHaServerAddr());
                             result.setMasterAddr(masterAddr);
                         }
@@ -222,22 +235,28 @@ public class RouteInfoManager {
         queueData.setPerm(topicConfig.getPerm());
         queueData.setTopicSynFlag(topicConfig.getTopicSysFlag());
 
+        //每个topic下，都包含多个数据队列，这些队列可能来自于不同的broker
         List<QueueData> queueDataList = this.topicQueueTable.get(topicConfig.getTopicName());
         if (null == queueDataList) {
+            //当目标topic下数据队列为空时，创建一个新队列
             queueDataList = new LinkedList<QueueData>();
             queueDataList.add(queueData);
             this.topicQueueTable.put(topicConfig.getTopicName(), queueDataList);
             log.info("new topic registered, {} {}", topicConfig.getTopicName(), queueData);
         } else {
+            //当目标topic下数据队列不为空
             boolean addNewOne = true;
 
             Iterator<QueueData> it = queueDataList.iterator();
             while (it.hasNext()) {
                 QueueData qd = it.next();
+                //目前所有的QueueData都是同一个topic，再对同一个broker进行筛选
                 if (qd.getBrokerName().equals(brokerName)) {
                     if (qd.equals(queueData)) {
+                        //队列实例信息未修改，将不更新QueueData实例信息
                         addNewOne = false;
                     } else {
+                        //对垒实例信息被修改，更新QueueData实例信息（先删除，后增加，而非对变动的字段进行修改）
                         log.info("topic changed, {} OLD: {} NEW: {}", topicConfig.getTopicName(), qd,
                             queueData);
                         it.remove();
