@@ -110,6 +110,12 @@ public class BrokerOuterAPI {
         this.remotingClient.updateNameServerAddressList(lst);
     }
 
+    /*
+     * 注册Broker实例的逻辑，并发注册
+     * ①RPC调用参数的配置
+     * ②RPC调用
+     * ③返回值封装
+     */
     public List<RegisterBrokerResult> registerBrokerAll(
         final String clusterName,
         final String brokerAddr,
@@ -141,6 +147,7 @@ public class BrokerOuterAPI {
             final int bodyCrc32 = UtilAll.crc32(body);
             requestHeader.setBodyCrc32(bodyCrc32);
             final CountDownLatch countDownLatch = new CountDownLatch(nameServerAddressList.size());
+            //并发注册
             for (final String namesrvAddr : nameServerAddressList) {
                 brokerOuterExecutor.execute(new Runnable() {
                     @Override
@@ -200,6 +207,7 @@ public class BrokerOuterAPI {
                 result.setMasterAddr(responseHeader.getMasterAddr());
                 result.setHaServerAddr(responseHeader.getHaServerAddr());
                 if (response.getBody() != null) {
+                    //将目标namesrv服务的 ORDER_TOPIC_CONFIG 配置进行注入
                     result.setKvTable(KVTable.decode(response.getBody(), KVTable.class));
                 }
                 return result;
@@ -257,6 +265,7 @@ public class BrokerOuterAPI {
         throw new MQBrokerException(response.getCode(), response.getRemark(), brokerAddr);
     }
 
+    //判断Broker实例是否需要重新注册，主要看该Broker实例的dataVersion和所有namesrv上的dataVersion是否一致
     public List<Boolean> needRegister(
         final String clusterName,
         final String brokerAddr,
@@ -314,6 +323,7 @@ public class BrokerOuterAPI {
 
             }
             try {
+                //并发查询，等待返回
                 countDownLatch.await(timeoutMills, TimeUnit.MILLISECONDS);
             } catch (InterruptedException e) {
                 log.error("query dataversion from nameserver countDownLatch await Exception", e);

@@ -37,7 +37,7 @@ public class NamesrvConfig {
     private boolean orderMessageEnable = false;
 
     public boolean isOrderMessageEnable() {
-        return orderMessageEnable;
+            return orderMessageEnable;
     }
 
     public void setOrderMessageEnable(boolean orderMessageEnable) {

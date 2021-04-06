@@ -99,6 +99,7 @@ public class RouteInfoManager {
         return topicList.encode();
     }
 
+    //注册broker实例
     public RegisterBrokerResult registerBroker(
         final String clusterName,
         final String brokerAddr,
@@ -207,6 +208,7 @@ public class RouteInfoManager {
         return result;
     }
 
+    //判断Broker实例是否发生了Topic配置的修改（主要是通过dataVersion字段的equals方法判断）
     public boolean isBrokerTopicConfigChanged(final String brokerAddr, final DataVersion dataVersion) {
         DataVersion prev = queryBrokerTopicConfig(brokerAddr);
         return null == prev || !prev.equals(dataVersion);
@@ -315,6 +317,7 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.writeLock().lockInterruptibly();
+                //从￿心跳信息中移除
                 BrokerLiveInfo brokerLiveInfo = this.brokerLiveTable.remove(brokerAddr);
                 log.info("unregisterBroker, remove from brokerLiveTable {}, {}",
                     brokerLiveInfo != null ? "OK" : "Failed",
@@ -323,15 +326,18 @@ public class RouteInfoManager {
 
                 this.filterServerTable.remove(brokerAddr);
 
+                //根据broker的名称找到主从集合
                 boolean removeBrokerName = false;
                 BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                 if (null != brokerData) {
+                    //移除目标broker服务器的路由信息
                     String addr = brokerData.getBrokerAddrs().remove(brokerId);
                     log.info("unregisterBroker, remove addr from brokerAddrTable {}, {}",
                         addr != null ? "OK" : "Failed",
                         brokerAddr
                     );
 
+                    //如果移除目标broker服务器的路由信息后，目标主从集合为空，则把主从集合信息也移除
                     if (brokerData.getBrokerAddrs().isEmpty()) {
                         this.brokerAddrTable.remove(brokerName);
                         log.info("unregisterBroker, remove name from brokerAddrTable OK, {}",
@@ -342,14 +348,17 @@ public class RouteInfoManager {
                     }
                 }
 
+                //当本次处理成功移除了一个主从集合信息
                 if (removeBrokerName) {
                     Set<String> nameSet = this.clusterAddrTable.get(clusterName);
                     if (nameSet != null) {
+                        //从该主从集合所属集群移除该主从集合
                         boolean removed = nameSet.remove(brokerName);
                         log.info("unregisterBroker, remove name from clusterAddrTable {}, {}",
                             removed ? "OK" : "Failed",
                             brokerName);
 
+                        //如果该主从集合是所属集群最后一个主从集合，那么把该集群信息也移除
                         if (nameSet.isEmpty()) {
                             this.clusterAddrTable.remove(clusterName);
                             log.info("unregisterBroker, remove cluster from clusterAddrTable {}",
@@ -357,6 +366,7 @@ public class RouteInfoManager {
                             );
                         }
                     }
+                    //一个主从集合被移除了，那么所有topic下属的QueueData如果有属于该主从集合的，也需要移除
                     this.removeTopicByBrokerName(brokerName);
                 }
             } finally {
@@ -367,6 +377,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 遍历所有topic下属QueueData，只要该QueueData属于目标主从集合，则删除
+     *
+     * @param brokerName 主从集合
+     */
     private void removeTopicByBrokerName(final String brokerName) {
         Iterator<Entry<String, List<QueueData>>> itMap = this.topicQueueTable.entrySet().iterator();
         while (itMap.hasNext()) {
@@ -390,6 +405,11 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 根据topic名称获取路由信息
+     * @param topic topic名称
+     * @return 路由信息
+     */
     public TopicRouteData pickupTopicRouteData(final String topic) {
         TopicRouteData topicRouteData = new TopicRouteData();
         boolean foundQueueData = false;
@@ -404,17 +424,20 @@ public class RouteInfoManager {
         try {
             try {
                 this.lock.readLock().lockInterruptibly();
+                //根据topic找到QueueData元数据
                 List<QueueData> queueDataList = this.topicQueueTable.get(topic);
                 if (queueDataList != null) {
                     topicRouteData.setQueueDatas(queueDataList);
                     foundQueueData = true;
 
+                    //根据tipic找到所有涉及到的broker主从集合
                     Iterator<QueueData> it = queueDataList.iterator();
                     while (it.hasNext()) {
                         QueueData qd = it.next();
                         brokerNameSet.add(qd.getBrokerName());
                     }
 
+                    //拷贝所有涉及到的broker主从集合信息
                     for (String brokerName : brokerNameSet) {
                         BrokerData brokerData = this.brokerAddrTable.get(brokerName);
                         if (null != brokerData) {
@@ -438,6 +461,11 @@ public class RouteInfoManager {
 
         log.debug("pickupTopicRouteData {} {}", topic, topicRouteData);
 
+        /**
+         * 只有当下属条件都满足时，才算查找成功
+         * ①根据topic找到了目标主从集合
+         * ②根据topic找到元数据队列
+         */
         if (foundBrokerData && foundQueueData) {
             return topicRouteData;
         }
@@ -445,6 +473,9 @@ public class RouteInfoManager {
         return null;
     }
 
+    /**
+     * 遍历心跳信息，超过120s未更新心跳信息的broker服务器，从路由信息中进行删除
+     */
     public void scanNotActiveBroker() {
         Iterator<Entry<String, BrokerLiveInfo>> it = this.brokerLiveTable.entrySet().iterator();
         while (it.hasNext()) {
@@ -459,12 +490,18 @@ public class RouteInfoManager {
         }
     }
 
+    /**
+     * 根据broker服务器地址、连接进行路由信息删除
+     * @param remoteAddr broker服务器地址
+     * @param channel 该broker服务器的心跳信息里的连接
+     */
     public void onChannelDestroy(String remoteAddr, Channel channel) {
         String brokerAddrFound = null;
         if (channel != null) {
             try {
                 try {
                     this.lock.readLock().lockInterruptibly();
+                    //从心跳列表中取出目标broker实例（根据channel）
                     Iterator<Entry<String, BrokerLiveInfo>> itBrokerLiveTable =
                         this.brokerLiveTable.entrySet().iterator();
                     while (itBrokerLiveTable.hasNext()) {
@@ -482,32 +519,38 @@ public class RouteInfoManager {
             }
         }
 
+        //如果根据channel获取broker服务器地址失败，直接使用根据ip:port获取的broker服务器地址
         if (null == brokerAddrFound) {
             brokerAddrFound = remoteAddr;
         } else {
             log.info("the broker's channel destroyed, {}, clean it's data structure at once", brokerAddrFound);
         }
 
+        //只有找到了目标breker地址，才会开启启动关闭channel的动作
         if (brokerAddrFound != null && brokerAddrFound.length() > 0) {
 
             try {
                 try {
                     this.lock.writeLock().lockInterruptibly();
+                    //移除该broker服务器地址的心跳信息
                     this.brokerLiveTable.remove(brokerAddrFound);
                     this.filterServerTable.remove(brokerAddrFound);
                     String brokerNameFound = null;
                     boolean removeBrokerName = false;
                     Iterator<Entry<String, BrokerData>> itBrokerAddrTable =
                         this.brokerAddrTable.entrySet().iterator();
+                    //遍历broker主从集合（一个namesrv可以注册多个主从集合，名称一样的broker属于同一个主从集合）
                     while (itBrokerAddrTable.hasNext() && (null == brokerNameFound)) {
                         BrokerData brokerData = itBrokerAddrTable.next().getValue();
 
+                        //遍历broker主从集合中的地址
                         Iterator<Entry<Long, String>> it = brokerData.getBrokerAddrs().entrySet().iterator();
                         while (it.hasNext()) {
                             Entry<Long, String> entry = it.next();
                             Long brokerId = entry.getKey();
                             String brokerAddr = entry.getValue();
                             if (brokerAddr.equals(brokerAddrFound)) {
+                                //找到broker服务器地址一样的进行移除
                                 brokerNameFound = brokerData.getBrokerName();
                                 it.remove();
                                 log.info("remove brokerAddr[{}, {}] from brokerAddrTable, because channel destroyed",
@@ -516,6 +559,7 @@ public class RouteInfoManager {
                             }
                         }
 
+                        //当被移除的broker服务器是目标broker主从集合的最后一台服务器时，直接将该主从集合除名
                         if (brokerData.getBrokerAddrs().isEmpty()) {
                             removeBrokerName = true;
                             itBrokerAddrTable.remove();
@@ -524,7 +568,9 @@ public class RouteInfoManager {
                         }
                     }
 
+                    //当删除broker服务器路由信息成功，并且主从集合也被干掉时
                     if (brokerNameFound != null && removeBrokerName) {
+                        //从集群中删除目标主从集合broker名称
                         Iterator<Entry<String, Set<String>>> it = this.clusterAddrTable.entrySet().iterator();
                         while (it.hasNext()) {
                             Entry<String, Set<String>> entry = it.next();
@@ -535,6 +581,7 @@ public class RouteInfoManager {
                                 log.info("remove brokerName[{}], clusterName[{}] from clusterAddrTable, because channel destroyed",
                                     brokerNameFound, clusterName);
 
+                                //如果集群中已经没有任何主从集合，将该集群除名
                                 if (brokerNames.isEmpty()) {
                                     log.info("remove the clusterName[{}] from clusterAddrTable, because channel destroyed and no broker in this cluster",
                                         clusterName);
@@ -546,14 +593,17 @@ public class RouteInfoManager {
                         }
                     }
 
+                    //broker主从集合被删除时，处理topic相关
                     if (removeBrokerName) {
                         Iterator<Entry<String, List<QueueData>>> itTopicQueueTable =
                             this.topicQueueTable.entrySet().iterator();
+                        //遍历所有topic
                         while (itTopicQueueTable.hasNext()) {
                             Entry<String, List<QueueData>> entry = itTopicQueueTable.next();
                             String topic = entry.getKey();
                             List<QueueData> queueDataList = entry.getValue();
 
+                            //每个topic都维护了一QueueData队列，每个QueueData实例都是隶属于一个broker主从集合的，当主从集合不在了，这个QueueData实例也需要被移除
                             Iterator<QueueData> itQueueData = queueDataList.iterator();
                             while (itQueueData.hasNext()) {
                                 QueueData queueData = itQueueData.next();
@@ -564,6 +614,7 @@ public class RouteInfoManager {
                                 }
                             }
 
+                            //当某个topic所有的QueueData实例都被移除，这个topic也需要被移除
                             if (queueDataList.isEmpty()) {
                                 itTopicQueueTable.remove();
                                 log.info("remove topic[{}] all queue, from topicQueueTable, because channel destroyed",
