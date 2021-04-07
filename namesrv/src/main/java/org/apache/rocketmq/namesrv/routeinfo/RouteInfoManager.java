@@ -430,7 +430,7 @@ public class RouteInfoManager {
                     topicRouteData.setQueueDatas(queueDataList);
                     foundQueueData = true;
 
-                    //根据tipic找到所有涉及到的broker主从集合
+                    //根据topic找到所有涉及到的broker主从集合
                     Iterator<QueueData> it = queueDataList.iterator();
                     while (it.hasNext()) {
                         QueueData qd = it.next();

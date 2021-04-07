@@ -314,6 +314,9 @@ public class UtilAll {
         return result;
     }
 
+    /**
+     * 压缩算法基于JDK自带
+     */
     public static byte[] compress(final byte[] src, final int level) throws IOException {
         byte[] result = src;
         ByteArrayOutputStream byteArrayOutputStream = new ByteArrayOutputStream(src.length);

@@ -26,6 +26,10 @@ import java.util.List;
 import org.apache.rocketmq.remoting.protocol.RemotingSerializable;
 
 public class TopicRouteData extends RemotingSerializable {
+    /**
+     * orderTopicConf字段格式如下
+     * [brokerName1]:[nums1];[brokerName2]:[nums2]
+     */
     private String orderTopicConf;
     private List<QueueData> queueDatas;
     private List<BrokerData> brokerDatas;

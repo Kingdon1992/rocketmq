@@ -56,6 +56,8 @@ public class MQFaultStrategy {
     }
 
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
+        // 根据官网介绍，如果 sendLatencyFaultEnable 打开，在随机递增取模的基础上，再过滤掉not available的Broker代理
+        // 所谓的"latencyFaultTolerance"，是指对之前失败的，按一定的时间做退避
         if (this.sendLatencyFaultEnable) {
             try {
                 int index = tpInfo.getSendWhichQueue().getAndIncrement();
@@ -90,6 +92,12 @@ public class MQFaultStrategy {
         return tpInfo.selectOneMessageQueue(lastBrokerName);
     }
 
+    /**
+     * 更新Brokder主从集合延时信息
+     * @param brokerName Broker名称
+     * @param currentLatency 延时情况
+     * @param isolation 是否隔离
+     */
     public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
         if (this.sendLatencyFaultEnable) {
             long duration = computeNotAvailableDuration(isolation ? 30000 : currentLatency);

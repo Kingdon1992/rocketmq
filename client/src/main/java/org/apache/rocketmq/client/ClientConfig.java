@@ -92,6 +92,7 @@ public class ClientConfig {
         this.instanceName = instanceName;
     }
 
+    //如果实例的名称是默认值，那么修改为进程id
     public void changeInstanceNameToPID() {
         if (this.instanceName.equals("DEFAULT")) {
             this.instanceName = String.valueOf(UtilAll.getPid());

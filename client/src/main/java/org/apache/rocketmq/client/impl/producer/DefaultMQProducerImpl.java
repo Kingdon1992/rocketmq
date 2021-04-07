@@ -98,6 +98,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     private final InternalLogger log = ClientLogger.getLog();
     private final Random random = new Random();
     private final DefaultMQProducer defaultMQProducer;
+    /**
+     * 存储格式化过的 topic 路由信息
+     *   - 从namesrv获取时的路由信息是 TopicRouteData 格式
+     */
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
         new ConcurrentHashMap<String, TopicPublishInfo>();
     private final ArrayList<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
@@ -180,6 +184,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             case CREATE_JUST:
                 this.serviceState = ServiceState.START_FAILED;
 
+                //检查producerGroup名称是否合法
                 this.checkConfig();
 
                 if (!this.defaultMQProducer.getProducerGroup().equals(MixAll.CLIENT_INNER_PRODUCER_GROUP)) {
@@ -231,6 +236,13 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }, 1000 * 3, 1000);
     }
 
+    /**
+     * 检查producerGroup名称是否符合要求
+     * ①不允许为空（""或null都不行）
+     * ②长度不允许超过255
+     * ③所包含的字符必须符合要求
+     * ④不允许为默认名称——DEFAULT_PRODUCER
+     */
     private void checkConfig() throws MQClientException {
         Validators.checkGroup(this.defaultMQProducer.getProducerGroup());
 
@@ -399,11 +411,17 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.checkExecutor.submit(request);
     }
 
+    /**
+     * 更新topic路由信息
+     * @param topic 目标topic
+     * @param info 新路由信息
+     */
     @Override
     public void updateTopicPublishInfo(final String topic, final TopicPublishInfo info) {
         if (info != null && topic != null) {
             TopicPublishInfo prev = this.topicPublishInfoTable.put(topic, info);
             if (prev != null) {
+                //当目标topic存在旧路由信息时，进行打印
                 log.info("updateTopicPublishInfo prev is not null, " + prev.toString());
             }
         }
@@ -525,6 +543,12 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     }
 
+    /**
+     * 选取一个消息队列进行发送
+     * @param tpInfo topic 的路由信息
+     * @param lastBrokerName 上一次选择的 Broker 名称
+     * @return 被选中的消息队列
+     */
     public MessageQueue selectOneMessageQueue(final TopicPublishInfo tpInfo, final String lastBrokerName) {
         return this.mqFaultStrategy.selectOneMessageQueue(tpInfo, lastBrokerName);
     }
@@ -542,6 +566,14 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     }
 
+    /**
+     * 信息发送默认实现
+     *
+     * @param msg               信息体
+     * @param communicationMode 发送模式：同步、异步或单向
+     * @param sendCallback      异步模式下的回调方法
+     * @param timeout           等待超时时间
+     */
     private SendResult sendDefaultImpl(
         Message msg,
         final CommunicationMode communicationMode,
@@ -554,12 +586,14 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         long beginTimestampFirst = System.currentTimeMillis();
         long beginTimestampPrev = beginTimestampFirst;
         long endTimestamp = beginTimestampFirst;
+        //根据 topic 找到目标路由信息
         TopicPublishInfo topicPublishInfo = this.tryToFindTopicPublishInfo(msg.getTopic());
         if (topicPublishInfo != null && topicPublishInfo.ok()) {
             boolean callTimeout = false;
             MessageQueue mq = null;
             Exception exception = null;
             SendResult sendResult = null;
+            //计算出总的尝试次数，只有同步模式下重试
             int timesTotal = communicationMode == CommunicationMode.SYNC ? 1 + this.defaultMQProducer.getRetryTimesWhenSendFailed() : 1;
             int times = 0;
             String[] brokersSent = new String[timesTotal];
@@ -686,17 +720,27 @@ public class DefaultMQProducerImpl implements MQProducerInner {
             null).setResponseCode(ClientErrorCode.NOT_FOUND_TOPIC_EXCEPTION);
     }
 
+    /**
+     * 根据 topic 找路由信息
+     * - 如果找到了目标 topic 的路由信息，则直接返回
+     * - 如果没找到，则尝试走默认的 topic 的路由信息，但是前提是 isAutoCreateTopicEnable 配置有打开
+     * @param topic 目标 topic
+     * @return 路由信息
+     */
     private TopicPublishInfo tryToFindTopicPublishInfo(final String topic) {
         TopicPublishInfo topicPublishInfo = this.topicPublishInfoTable.get(topic);
         if (null == topicPublishInfo || !topicPublishInfo.ok()) {
             this.topicPublishInfoTable.putIfAbsent(topic, new TopicPublishInfo());
+            //更新目标 topic 的路由信息
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
         }
 
+        //如果经历了上一步更新路由信息的处理，那么此处可以直接返回
         if (topicPublishInfo.isHaveTopicRouterInfo() || topicPublishInfo.ok()) {
             return topicPublishInfo;
         } else {
+            //当目标 topic 在 namesrv 没有任何路由信息时，尝试走默认的 topic （前提是 Brokder 实例开启了 isAutoCreateTopicEnable 配置）
             this.mQClientFactory.updateTopicRouteInfoFromNameServer(topic, true, this.defaultMQProducer);
             topicPublishInfo = this.topicPublishInfoTable.get(topic);
             return topicPublishInfo;
@@ -718,12 +762,14 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
         SendMessageContext context = null;
         if (brokerAddr != null) {
+            //如果使用VIP通道，则更新地址信息
             brokerAddr = MixAll.brokerVIPChannel(this.defaultMQProducer.isSendMessageWithVIPChannel(), brokerAddr);
 
             byte[] prevBody = msg.getBody();
             try {
-                //for MessageBatch,ID has been set in the generating process
+                //for MessageBatch,ID has been set in the generating process（非批量发送，则设置唯一id）
                 if (!(msg instanceof MessageBatch)) {
+                    //id生成算法比较复杂，跳过
                     MessageClientIDSetter.setUniqID(msg);
                 }
 
@@ -733,6 +779,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                     topicWithNamespace = true;
                 }
 
+                //判断是否压缩消息
                 int sysFlag = 0;
                 boolean msgBodyCompressed = false;
                 if (this.tryToCompressMessage(msg)) {
@@ -740,6 +787,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                     msgBodyCompressed = true;
                 }
 
+                //事务相关
                 final String tranMsg = msg.getProperty(MessageConst.PROPERTY_TRANSACTION_PREPARED);
                 if (tranMsg != null && Boolean.parseBoolean(tranMsg)) {
                     sysFlag |= MessageSysFlag.TRANSACTION_PREPARED_TYPE;
@@ -903,6 +951,10 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         return mQClientFactory;
     }
 
+    /**
+     * 压缩消息内容主体
+     * ①批量发送不支持压缩
+     */
     private boolean tryToCompressMessage(final Message msg) {
         if (msg instanceof MessageBatch) {
             //batch dose not support compressing right now
@@ -910,6 +962,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }
         byte[] body = msg.getBody();
         if (body != null) {
+            //默认超过4MB的消息主体会被压缩
             if (body.length >= this.defaultMQProducer.getCompressMsgBodyOverHowmuch()) {
                 try {
                     byte[] data = UtilAll.compress(body, zipCompressLevel);

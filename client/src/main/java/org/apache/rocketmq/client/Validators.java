@@ -78,6 +78,18 @@ public class Validators {
         return matcher.matches();
     }
 
+    /**
+     * 消息校验
+     * ①消息体不允许为null
+     * ②消息所属topic名称校验：
+     *   - 不允许为空白
+     *   - 长度不允许超过127
+     *   - topic名称组成字符必须符合规范
+     * ③目标topic是否被禁用
+     * ④消息内容校验：
+     *   - 不允许为空
+     *   - 长度不允许超过最大限制（默认4MB）
+     */
     public static void checkMessage(Message msg, DefaultMQProducer defaultMQProducer)
         throws MQClientException {
         if (null == msg) {

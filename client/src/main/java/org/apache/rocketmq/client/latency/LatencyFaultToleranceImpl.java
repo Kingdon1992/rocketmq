@@ -29,6 +29,12 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     private final ThreadLocalIndex whichItemWorst = new ThreadLocalIndex();
 
+    /**
+     * 更新broker延时信息
+     * @param name broker名称
+     * @param currentLatency 本次 完成任务/任务失败 所使用的时长
+     * @param notAvailableDuration 将该 broker 移出路由计算的时长
+     */
     @Override
     public void updateFaultItem(final String name, final long currentLatency, final long notAvailableDuration) {
         FaultItem old = this.faultItemTable.get(name);
@@ -48,6 +54,11 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         }
     }
 
+    /**
+     * 判断目标 broker 是否需要规避
+     * @param name 目标 broker 名称
+     * @return 结论
+     */
     @Override
     public boolean isAvailable(final String name) {
         final FaultItem faultItem = this.faultItemTable.get(name);
@@ -57,6 +68,10 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         return true;
     }
 
+    /**
+     * 移除目标 broker 延时信息
+     * @param name
+     */
     @Override
     public void remove(final String name) {
         this.faultItemTable.remove(name);
@@ -64,7 +79,15 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     @Override
     public String pickOneAtLeast() {
+        /**
+         * Enumeration 和 Iterator
+         * 相同：都可以用来枚举
+         * 差异：
+         *   - Iterator 提供了 remove() 方法，可以删除元素
+         *   - Enumeration 不允许删除元素
+         */
         final Enumeration<FaultItem> elements = this.faultItemTable.elements();
+        //将所有 broker 延时信息拷贝了一份，应该是为了使用后续 List 相关的 API
         List<FaultItem> tmpList = new LinkedList<FaultItem>();
         while (elements.hasMoreElements()) {
             final FaultItem faultItem = elements.nextElement();
@@ -72,6 +95,7 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
         }
 
         if (!tmpList.isEmpty()) {
+            //应该是为了排序的性能，保证元素的随机性，所以先打乱，再排序
             Collections.shuffle(tmpList);
 
             Collections.sort(tmpList);
@@ -98,7 +122,13 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
     class FaultItem implements Comparable<FaultItem> {
         private final String name;
+        /**
+         * 当前 broker 延时时长
+         */
         private volatile long currentLatency;
+        /**
+         * 参与路由计算开始时间戳（即结束规避时间戳）
+         */
         private volatile long startTimestamp;
 
         public FaultItem(final String name) {
@@ -107,6 +137,10 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
 
         @Override
         public int compareTo(final FaultItem other) {
+            /**
+             * 当排序时，小的值在前面
+             * 未规避（可参与路由）的 broker 优先排在前方
+             */
             if (this.isAvailable() != other.isAvailable()) {
                 if (this.isAvailable())
                     return -1;
@@ -115,12 +149,14 @@ public class LatencyFaultToleranceImpl implements LatencyFaultTolerance<String> 
                     return 1;
             }
 
+            //当两者状态一致，都被规避，或都未被规避，延时时长较短的优先级较高
             if (this.currentLatency < other.currentLatency)
                 return -1;
             else if (this.currentLatency > other.currentLatency) {
                 return 1;
             }
 
+            //当两者状态一致，且延时时长一致，能早点恢复可用的 broker 优先级高
             if (this.startTimestamp < other.startTimestamp)
                 return -1;
             else if (this.startTimestamp > other.startTimestamp) {
