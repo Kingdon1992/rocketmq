@@ -25,6 +25,19 @@ import java.util.Set;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
 
+/**
+ * 检测 topic 名称合法性的工具类
+ *
+ * ① 规定了一些常量值，包括
+ *   - 默认自动生成的 topic 名称
+ *   - topic 的合法字符 0~9 a~z A~Z | % - _
+ *   - 部分系统自带的 topic 名称
+ *   - 其他系统走到的 topic 名称的前缀 rmq_sys_
+ *   - topic 名称默认最大长度127
+ * ② 持有两个集合
+ *   - 系统 topic 集合
+ *   - 禁止接收信息 topic 集合
+ */
 public class TopicValidator {
 
     public static final String AUTO_CREATE_TOPIC_KEY_TOPIC = "TBW102"; // Will be created at broker when isAutoCreateTopicEnable
@@ -72,6 +85,12 @@ public class TopicValidator {
         return matcher.matches();
     }
 
+    /**
+     * 检查 topic 名称是否符合规范
+     * ①不允许为全空格
+     * ②不允许特殊字符
+     * ③长度不允许超过127
+     */
     public static boolean validateTopic(String topic, RemotingCommand response) {
 
         if (UtilAll.isBlank(topic)) {
@@ -104,6 +123,11 @@ public class TopicValidator {
         return false;
     }
 
+    /**
+     * 判断 topic 是否为系统 topic，系统 topic
+     * ① 要么存在 TopicValidator.SYSTEM_TOPIC_SET 集合中
+     * ② 要么以 "rmq_sys_" 开头
+     */
     public static boolean isSystemTopic(String topic) {
         return SYSTEM_TOPIC_SET.contains(topic) || topic.startsWith(SYSTEM_TOPIC_PREFIX);
     }

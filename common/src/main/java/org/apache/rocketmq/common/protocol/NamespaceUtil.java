@@ -101,6 +101,12 @@ public class NamespaceUtil {
             stringBuilder.append(MixAll.DLQ_GROUP_TOPIC_PREFIX);
         }
 
+        /*
+         * 字段排序优先级
+         * ①DLQ、RETRY
+         * ②namespace
+         * ③原始 topic
+         */
         return stringBuilder.append(namespace).append(NAMESPACE_SEPARATOR).append(resourceWithoutRetryAndDLQ).toString();
 
     }
@@ -136,6 +142,9 @@ public class NamespaceUtil {
         return index > 0 ? resourceWithoutRetryAndDLQ.substring(0, index) : STRING_BLANK;
     }
 
+    /**
+     * 将带有"%RETRY%"、"%DLQ%"开头的 topic 名称重置
+     */
     private static String withOutRetryAndDLQ(String originalResource) {
         if (StringUtils.isEmpty(originalResource)) {
             return STRING_BLANK;
@@ -151,6 +160,12 @@ public class NamespaceUtil {
         return originalResource;
     }
 
+    /**
+     * 判断目标 topic 是不是系统自带的 topic
+     * - 以 "rmq_sys_" 开头
+     * - 在 TopicValidator.SYSTEM_TOPIC_SET 集合中
+     * - 以 "CID_RMQ_SYS_" 开头
+     */
     private static boolean isSystemResource(String resource) {
         if (StringUtils.isEmpty(resource)) {
             return false;
@@ -163,10 +178,18 @@ public class NamespaceUtil {
         return false;
     }
 
+    /**
+     * 判断是否为重试的 topic
+     * - 以 "%RETRY%" 开头
+     */
     public static boolean isRetryTopic(String resource) {
         return StringUtils.isNotBlank(resource) && resource.startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX);
     }
 
+    /**
+     * 判断是否为DLQ的 topic
+     * - 以 "%DLQ%" 开头
+     */
     public static boolean isDLQTopic(String resource) {
         return StringUtils.isNotBlank(resource) && resource.startsWith(MixAll.DLQ_GROUP_TOPIC_PREFIX);
     }

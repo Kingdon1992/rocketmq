@@ -1044,6 +1044,11 @@ public class MQClientInstance {
         return null;
     }
 
+    /**
+     * 根据 broker 名称找到目标 broker 主实例的地址（IP:PORT）
+     * @param brokerName
+     * @return
+     */
     public String findBrokerAddressInPublish(final String brokerName) {
         HashMap<Long/* brokerId */, String/* address */> map = this.brokerAddrTable.get(brokerName);
         if (map != null && !map.isEmpty()) {

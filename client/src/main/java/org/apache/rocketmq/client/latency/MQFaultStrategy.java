@@ -70,9 +70,11 @@ public class MQFaultStrategy {
                         return mq;
                 }
 
+                //如果发现所有 broker 的消息队列都处于不可参与路由状态，则随机挑选一个
                 final String notBestBroker = latencyFaultTolerance.pickOneAtLeast();
                 int writeQueueNums = tpInfo.getQueueIdByBroker(notBestBroker);
                 if (writeQueueNums > 0) {
+                    //如果被选中的消息队列存在可写队列，则选定该消息队列
                     final MessageQueue mq = tpInfo.selectOneMessageQueue();
                     if (notBestBroker != null) {
                         mq.setBrokerName(notBestBroker);
@@ -80,12 +82,14 @@ public class MQFaultStrategy {
                     }
                     return mq;
                 } else {
+                    //如果被选中的消息队列不存在可写队列，直接移除故障延迟信息
                     latencyFaultTolerance.remove(notBestBroker);
                 }
             } catch (Exception e) {
                 log.error("Error occurred when selecting message queue", e);
             }
 
+            //故障延迟机制出问题，则随机挑选
             return tpInfo.selectOneMessageQueue();
         }
 
@@ -95,8 +99,8 @@ public class MQFaultStrategy {
     /**
      * 更新Brokder主从集合延时信息
      * @param brokerName Broker名称
-     * @param currentLatency 延时情况
-     * @param isolation 是否隔离
+     * @param currentLatency 延时情况（ms）
+     * @param isolation 是否隔离，当该项为true，则将延时情况置为默认值30000
      */
     public void updateFaultItem(final String brokerName, final long currentLatency, boolean isolation) {
         if (this.sendLatencyFaultEnable) {

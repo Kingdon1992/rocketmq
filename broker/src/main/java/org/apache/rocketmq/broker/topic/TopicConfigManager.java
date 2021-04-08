@@ -47,6 +47,11 @@ public class TopicConfigManager extends ConfigManager {
 
     private transient final Lock lockTopicConfigTable = new ReentrantLock();
 
+    /**
+     * 存储了各个 topic 的配置信息
+     * key:topic 名称
+     * value:topic 配置信息
+     */
     private final ConcurrentMap<String, TopicConfig> topicConfigTable =
         new ConcurrentHashMap<String, TopicConfig>(1024);
     private final DataVersion dataVersion = new DataVersion();

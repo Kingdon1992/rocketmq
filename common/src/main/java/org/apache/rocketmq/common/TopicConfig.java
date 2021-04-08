@@ -19,12 +19,17 @@ package org.apache.rocketmq.common;
 import org.apache.rocketmq.common.constant.PermName;
 
 public class TopicConfig {
+    //分隔符
     private static final String SEPARATOR = " ";
     public static int defaultReadQueueNums = 16;
     public static int defaultWriteQueueNums = 16;
+    //topic 名称
     private String topicName;
+    //读队列数量
     private int readQueueNums = defaultReadQueueNums;
+    //写队列数量
     private int writeQueueNums = defaultWriteQueueNums;
+    //该字段定义了 topic 的读写能力，默认可读可写
     private int perm = PermName.PERM_READ | PermName.PERM_WRITE;
     private TopicFilterType topicFilterType = TopicFilterType.SINGLE_TAG;
     private int topicSysFlag = 0;
@@ -44,6 +49,9 @@ public class TopicConfig {
         this.perm = perm;
     }
 
+    /**
+     * 将 topic 配置序列化为 String
+     */
     public String encode() {
         StringBuilder sb = new StringBuilder();
         sb.append(this.topicName);
@@ -59,6 +67,9 @@ public class TopicConfig {
         return sb.toString();
     }
 
+    /**
+     * 根据入参 String 配置 topic 相关配置
+     */
     public boolean decode(final String in) {
         String[] strs = in.split(SEPARATOR);
         if (strs != null && strs.length == 5) {

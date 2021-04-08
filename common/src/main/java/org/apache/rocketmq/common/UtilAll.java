@@ -315,7 +315,7 @@ public class UtilAll {
     }
 
     /**
-     * 压缩算法基于JDK自带
+     * 压缩算法基于JDK自带，zip压缩
      */
     public static byte[] compress(final byte[] src, final int level) throws IOException {
         byte[] result = src;

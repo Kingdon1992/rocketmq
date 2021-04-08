@@ -505,6 +505,14 @@ public class MQClientAPIImpl {
         return this.processSendResponse(brokerName, msg, response,addr);
     }
 
+    /**
+     * 异步发送消息 API 封装
+     * ① 调用 RemotingClient 相关 API
+     * ② 结果处理
+     * ③ 异常处理
+     *
+     * 注意：异步调用的重试，被放在了此处
+     */
     private void sendMessageAsync(
         final String addr,
         final String brokerName,

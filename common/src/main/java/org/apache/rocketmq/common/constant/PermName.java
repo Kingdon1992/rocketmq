@@ -16,12 +16,18 @@
  */
 package org.apache.rocketmq.common.constant;
 
+/**
+ * 该类规范了用 int 类型值表示读写权限的方式
+ */
 public class PermName {
     public static final int PERM_PRIORITY = 0x1 << 3;
     public static final int PERM_READ = 0x1 << 2;
     public static final int PERM_WRITE = 0x1 << 1;
     public static final int PERM_INHERIT = 0x1 << 0;
 
+    /**
+     * 将代表读写能力的 int 类型值转为可视化的 String 类型
+     */
     public static String perm2String(final int perm) {
         final StringBuffer sb = new StringBuffer("---");
         if (isReadable(perm)) {
@@ -39,10 +45,16 @@ public class PermName {
         return sb.toString();
     }
 
+    /**
+     * 根据 int 类型值判断是否可读
+     */
     public static boolean isReadable(final int perm) {
         return (perm & PERM_READ) == PERM_READ;
     }
 
+    /**
+     * 根据 int 类型值判断是否可写
+     */
     public static boolean isWriteable(final int perm) {
         return (perm & PERM_WRITE) == PERM_WRITE;
     }

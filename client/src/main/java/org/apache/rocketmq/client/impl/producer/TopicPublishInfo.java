@@ -36,6 +36,9 @@ public class TopicPublishInfo {
      * 维护了一个ThreadLocal对象，用于计算取哪一个消息队列
      */
     private volatile ThreadLocalIndex sendWhichQueue = new ThreadLocalIndex();
+    /**
+     * 从namesrv查询到的路由原始信息（未格式化）
+     */
     private TopicRouteData topicRouteData;
 
     public boolean isOrderTopic() {
