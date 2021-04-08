@@ -165,26 +165,39 @@ public class TopicConfigManager extends ConfigManager {
         boolean createNew = false;
 
         try {
+            //规定了创建时长，超时则直接返回
             if (this.lockTopicConfigTable.tryLock(LOCK_TIMEOUT_MILLIS, TimeUnit.MILLISECONDS)) {
                 try {
+                    //再次查找，避免并发创建的情况发生
                     topicConfig = this.topicConfigTable.get(topic);
                     if (topicConfig != null)
                         return topicConfig;
 
+                    //查找请求参数配置默认 topic 是否存在
                     TopicConfig defaultTopicConfig = this.topicConfigTable.get(defaultTopic);
                     if (defaultTopicConfig != null) {
+                        //默认 topic 名称校验（TBW102）
                         if (defaultTopic.equals(TopicValidator.AUTO_CREATE_TOPIC_KEY_TOPIC)) {
+                            //本 broker 启动了默认 topic
                             if (!this.brokerController.getBrokerConfig().isAutoCreateTopicEnable()) {
+                                //设置默认 topic 可读写
                                 defaultTopicConfig.setPerm(PermName.PERM_READ | PermName.PERM_WRITE);
                             }
                         }
 
+                        /*
+                         * 默认 topic 的存在，不是用于消息的存储和发送，而是代表了是否允许自动生成不存在的 topic
+                         * 当默认 topic 存在，则其配置存在于表中，当 broker 接收到一个不存在的 topic 的消息请求，则会去默认继承默认 topic 的配置信息
+                         */
                         if (PermName.isInherited(defaultTopicConfig.getPerm())) {
                             topicConfig = new TopicConfig(topic);
 
-                            int queueNums =
-                                clientDefaultTopicQueueNums > defaultTopicConfig.getWriteQueueNums() ? defaultTopicConfig
-                                    .getWriteQueueNums() : clientDefaultTopicQueueNums;
+                            /*
+                             * 队列数量取以下两者的较小值
+                             * ①本次请求的配置
+                             * ②已有的默认 topic 的配置
+                             */
+                            int queueNums = Math.min(clientDefaultTopicQueueNums, defaultTopicConfig.getWriteQueueNums());
 
                             if (queueNums < 0) {
                                 queueNums = 0;
@@ -192,10 +205,16 @@ public class TopicConfigManager extends ConfigManager {
 
                             topicConfig.setReadQueueNums(queueNums);
                             topicConfig.setWriteQueueNums(queueNums);
+
+                            //继承默认 topic 的读写配置，但是不继承它的是否可被继承配置
                             int perm = defaultTopicConfig.getPerm();
                             perm &= ~PermName.PERM_INHERIT;
                             topicConfig.setPerm(perm);
+
+                            //使用请求入参的标志
                             topicConfig.setTopicSysFlag(topicSysFlag);
+
+                            //继承默认 topic 的配置
                             topicConfig.setTopicFilterType(defaultTopicConfig.getTopicFilterType());
                         } else {
                             log.warn("Create new topic failed, because the default topic[{}] has no perm [{}] producer:[{}]",
@@ -226,6 +245,7 @@ public class TopicConfigManager extends ConfigManager {
             log.error("createTopicInSendMessageMethod exception", e);
         }
 
+        //如果成功创建了一个 topic 配置，则需要向 namesrv 汇报路由信息
         if (createNew) {
             this.brokerController.registerBrokerAll(false, true, true);
         }

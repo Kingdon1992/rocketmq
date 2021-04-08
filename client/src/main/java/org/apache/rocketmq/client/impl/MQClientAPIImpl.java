@@ -418,6 +418,16 @@ public class MQClientAPIImpl {
 
     }
 
+    /**
+     * 消息发送第三层实现的封装，为单向发送、同步发送服务
+     * ①没有回调函数
+     * ②没有路由信息
+     * ③失败不重复尝试
+     *   - 单向发送不需要尝试
+     *   - 同步发送的失败重试被放在了外层
+     * ④未提供 MQClientInstance 实例对象，仅异步发送用到该实例对象（失败重试的时候需要用到）
+     *   - 因为异步发送失败重试的逻辑被放在了里层，而失败重试需要重新根据 brokerName 向 namesrv 查找路由信息
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -431,6 +441,9 @@ public class MQClientAPIImpl {
         return sendMessage(addr, brokerName, msg, requestHeader, timeoutMillis, communicationMode, null, null, null, 0, context, producer);
     }
 
+    /**
+     * 消息发送第三层实现
+     */
     public SendResult sendMessage(
         final String addr,
         final String brokerName,
@@ -529,13 +542,18 @@ public class MQClientAPIImpl {
     ) throws InterruptedException, RemotingException {
         final long beginStartTime = System.currentTimeMillis();
         this.remotingClient.invokeAsync(addr, request, timeoutMillis, new InvokeCallback() {
+            /**
+             * 当远程调用成功时，调用此函数
+             * @param responseFuture
+             */
             @Override
             public void operationComplete(ResponseFuture responseFuture) {
                 long cost = System.currentTimeMillis() - beginStartTime;
                 RemotingCommand response = responseFuture.getResponseCommand();
+                //远程调用成功，但是未设置回调函数时
                 if (null == sendCallback && response != null) {
-
                     try {
+                        //结果处理
                         SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
                         if (context != null && sendResult != null) {
                             context.setSendResult(sendResult);
@@ -543,13 +561,15 @@ public class MQClientAPIImpl {
                         }
                     } catch (Throwable e) {
                     }
-
+                    //更新 broker 调用延迟信息
                     producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), false);
                     return;
                 }
 
                 if (response != null) {
+                    //远程调用成功，并且设置了回调函数
                     try {
+                        //结果处理
                         SendResult sendResult = MQClientAPIImpl.this.processSendResponse(brokerName, msg, response, addr);
                         assert sendResult != null;
                         if (context != null) {
@@ -558,28 +578,38 @@ public class MQClientAPIImpl {
                         }
 
                         try {
+                            //执行回调函数
                             sendCallback.onSuccess(sendResult);
                         } catch (Throwable e) {
                         }
 
+                        //更新延迟信息
                         producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), false);
                     } catch (Exception e) {
+                        //结果处理出现异常，更新延迟信息
                         producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), true);
+                        //此处 needTetry 参数为 false，代表不再重试，仅仅是调用回调函数的 onException 方法
                         onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                             retryTimesWhenSendFailed, times, e, context, false, producer);
                     }
                 } else {
+                    //当回复为空，代表远程调用失败，在开始重试逻辑前，先更新 broker 调用延迟信息，为"故障延迟机制"提供数据
                     producer.updateFaultItem(brokerName, System.currentTimeMillis() - responseFuture.getBeginTimestamp(), true);
+
+                    //根据失败原因，创建不同的异常信息，然后调用重试方法
                     if (!responseFuture.isSendRequestOK()) {
+                        //发送异常
                         MQClientException ex = new MQClientException("send request failed", responseFuture.getCause());
                         onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                             retryTimesWhenSendFailed, times, ex, context, true, producer);
                     } else if (responseFuture.isTimeout()) {
+                        //等待超时
                         MQClientException ex = new MQClientException("wait response timeout " + responseFuture.getTimeoutMillis() + "ms",
                             responseFuture.getCause());
                         onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                             retryTimesWhenSendFailed, times, ex, context, true, producer);
                     } else {
+                        //未知异常
                         MQClientException ex = new MQClientException("unknow reseaon", responseFuture.getCause());
                         onExceptionImpl(brokerName, msg, timeoutMillis - cost, request, sendCallback, topicPublishInfo, instance,
                             retryTimesWhenSendFailed, times, ex, context, true, producer);
@@ -589,6 +619,22 @@ public class MQClientAPIImpl {
         });
     }
 
+    /**
+     * 当异步调用发生异常时，调用此方法进行重试
+     * @param brokerName 目标 brokder 名称
+     * @param msg 消息主体
+     * @param timeoutMillis 剩余可用时间
+     * @param request 请求主体
+     * @param sendCallback 异步调用的回调函数
+     * @param topicPublishInfo 路由信息
+     * @param instance MQClientInstance对象，用于重新查询路由信息
+     * @param timesTotal 允许最大重试次数
+     * @param curTimes 之前已经重试的次数
+     * @param e 之前失败的原因（Exception 实例对象）
+     * @param context 发送消息上下文
+     * @param needRetry 是否需要重试，如果为false，则仅仅是调用回调函数的 onException 函数
+     * @param producer 生产者实例
+     */
     private void onExceptionImpl(final String brokerName,
         final Message msg,
         final long timeoutMillis,
@@ -610,6 +656,7 @@ public class MQClientAPIImpl {
                 MessageQueue mqChosen = producer.selectOneMessageQueue(topicPublishInfo, brokerName);
                 retryBrokerName = mqChosen.getBrokerName();
             }
+            // 重新查找路由信息
             String addr = instance.findBrokerAddressInPublish(retryBrokerName);
             log.info("async send msg by retry {} times. topic={}, brokerAddr={}, brokerName={}", tmp, msg.getTopic(), addr,
                 retryBrokerName);
@@ -618,6 +665,7 @@ public class MQClientAPIImpl {
                 sendMessageAsync(addr, retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance,
                     timesTotal, curTimes, context, producer);
             } catch (InterruptedException e1) {
+                //线程中断异常不再重试
                 onExceptionImpl(retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance, timesTotal, curTimes, e1,
                     context, false, producer);
             } catch (RemotingConnectException e1) {
@@ -625,6 +673,7 @@ public class MQClientAPIImpl {
                 onExceptionImpl(retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance, timesTotal, curTimes, e1,
                     context, true, producer);
             } catch (RemotingTooMuchRequestException e1) {
+                //Broker端太过繁忙也不再重试
                 onExceptionImpl(retryBrokerName, msg, timeoutMillis, request, sendCallback, topicPublishInfo, instance, timesTotal, curTimes, e1,
                     context, false, producer);
             } catch (RemotingException e1) {
@@ -633,25 +682,35 @@ public class MQClientAPIImpl {
                     context, true, producer);
             }
         } else {
-
+            //当不再重试（入参不重试 或 超过重试次数）
             if (context != null) {
                 context.setException(e);
                 context.getProducer().executeSendMessageHookAfter(context);
             }
 
             try {
+                //调用回调函数 onException 方法
                 sendCallback.onException(e);
             } catch (Exception ignored) {
             }
         }
     }
 
+    /**
+     * 对远程调用返回的结果进行处理
+     *
+     * @param brokerName 本次调用的 broker 名称
+     * @param msg        本次调用的消息主体
+     * @param response   远程调用的返回值对象
+     * @param addr       远程调用 broker 的地址
+     */
     private SendResult processSendResponse(
         final String brokerName,
         final Message msg,
         final RemotingCommand response,
         final String addr
     ) throws MQBrokerException, RemotingCommandException {
+        //根据返回值判断
         SendStatus sendStatus;
         switch (response.getCode()) {
             case ResponseCode.FLUSH_DISK_TIMEOUT: {

@@ -567,7 +567,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     /**
-     * 信息发送默认实现
+     * 消息发送顶层实现
      * ①找路由信息
      * ②同步发送的失败重试
      *   - 异步发送的失败重试被放在了最里层，通过 InvokeCallback 完成
@@ -625,7 +625,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                             break;
                         }
 
-                        //正式发送消息
+                        //调用里层发送逻辑
                         sendResult = this.sendKernelImpl(msg, mq, communicationMode, sendCallback, topicPublishInfo, timeout - costTime);
                         endTimestamp = System.currentTimeMillis();
                         this.updateFaultItem(mq.getBrokerName(), endTimestamp - beginTimestampPrev, false);
@@ -759,7 +759,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     /**
-     * 消息发送API核心入口
+     * 消息发送第二层实现
      * ①找到目标根据消息队列信息，找到目标 broker 地址
      * ②生成唯一信息id
      * ③压缩信息

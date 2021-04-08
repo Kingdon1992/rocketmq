@@ -21,8 +21,11 @@ package org.apache.rocketmq.common.constant;
  */
 public class PermName {
     public static final int PERM_PRIORITY = 0x1 << 3;
+    //可读
     public static final int PERM_READ = 0x1 << 2;
+    //可写
     public static final int PERM_WRITE = 0x1 << 1;
+    //可被继承
     public static final int PERM_INHERIT = 0x1 << 0;
 
     /**
@@ -59,6 +62,9 @@ public class PermName {
         return (perm & PERM_WRITE) == PERM_WRITE;
     }
 
+    /**
+     * 根据 int 类型值判断 topic 配置是否可以被继承
+     */
     public static boolean isInherited(final int perm) {
         return (perm & PERM_INHERIT) == PERM_INHERIT;
     }
