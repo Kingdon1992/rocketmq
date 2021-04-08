@@ -164,7 +164,11 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
     }
 
     /**
-     * 请求处理
+     * 校验请求，主要是校验 topic 的合理性、合法性
+     * ①topic名称合法性
+     * ②topic是否被限制
+     * ③topic是否存在
+     * ④topic不存在的补偿处理
      */
     protected RemotingCommand msgCheck(final ChannelHandlerContext ctx,
         final SendMessageRequestHeader requestHeader, final RemotingCommand response) {
@@ -199,7 +203,11 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                 }
             }
 
-            //根据请求入参创建一个新的
+            /*
+             * 根据请求入参、是否允许自动创建配置创建一个新的 topic，可能创建失败
+             * ①超时失败
+             * ②不允许自动生成
+             */
             log.warn("the topic {} not exist, producer: {}", requestHeader.getTopic(), ctx.channel().remoteAddress());
             topicConfig = this.brokerController.getTopicConfigManager().createTopicInSendMessageMethod(
                 requestHeader.getTopic(),
@@ -207,6 +215,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                 RemotingHelper.parseChannelRemoteAddr(ctx.channel()),
                 requestHeader.getDefaultTopicQueueNums(), topicSysFlag);
 
+            //上一步创建失败后，判断是否为重试队列，如果是，则直接创建一个重试队列 topic
             if (null == topicConfig) {
                 if (requestHeader.getTopic().startsWith(MixAll.RETRY_GROUP_TOPIC_PREFIX)) {
                     topicConfig =
@@ -216,6 +225,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
                 }
             }
 
+            //仍然找不到对应的 topic，直接失败返回
             if (null == topicConfig) {
                 response.setCode(ResponseCode.TOPIC_NOT_EXIST);
                 response.setRemark("topic[" + requestHeader.getTopic() + "] not exist, apply first please!"
@@ -224,6 +234,7 @@ public abstract class AbstractSendMessageProcessor extends AsyncNettyRequestProc
             }
         }
 
+        //当目标队列 id 超过了已有队列 id 的最大值，说明目标队列根本不存在，直接报错
         int queueIdInt = requestHeader.getQueueId();
         int idValid = Math.max(topicConfig.getWriteQueueNums(), topicConfig.getReadQueueNums());
         if (queueIdInt >= idValid) {

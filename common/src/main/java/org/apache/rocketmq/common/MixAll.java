@@ -138,6 +138,9 @@ public class MixAll {
         return 0;
     }
 
+    /**
+     * 持久化到硬盘
+     */
     public static void string2File(final String str, final String fileName) throws IOException {
 
         String tmpFile = fileName + ".tmp";

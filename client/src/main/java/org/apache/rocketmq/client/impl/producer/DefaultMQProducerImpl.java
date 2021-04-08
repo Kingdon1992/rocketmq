@@ -104,14 +104,26 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      */
     private final ConcurrentMap<String/* topic */, TopicPublishInfo> topicPublishInfoTable =
         new ConcurrentHashMap<String, TopicPublishInfo>();
+    /**
+     * 消息发送钩子对象注册数组
+     */
     private final ArrayList<SendMessageHook> sendMessageHookList = new ArrayList<SendMessageHook>();
     private final RPCHook rpcHook;
+    /**
+     * 异步发送线程池的任务队列
+     */
     private final BlockingQueue<Runnable> asyncSenderThreadPoolQueue;
+    /**
+     * 异步发送线程池
+     */
     private final ExecutorService defaultAsyncSenderExecutor;
     private final Timer timer = new Timer("RequestHouseKeepingService", true);
     protected BlockingQueue<Runnable> checkRequestQueue;
     protected ExecutorService checkExecutor;
     private ServiceState serviceState = ServiceState.CREATE_JUST;
+    /**
+     * 客户端实例，作用比较多
+     */
     private MQClientInstance mQClientFactory;
     private ArrayList<CheckForbiddenHook> checkForbiddenHookList = new ArrayList<CheckForbiddenHook>();
     private int zipCompressLevel = Integer.parseInt(System.getProperty(MixAll.MESSAGE_COMPRESS_LEVEL, "5"));
@@ -127,6 +139,15 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         this.rpcHook = rpcHook;
 
         this.asyncSenderThreadPoolQueue = new LinkedBlockingQueue<Runnable>(50000);
+        /*
+         * 异步发送线程池配置
+         * ①核心线程数：cpu核数
+         * ②最大线程数：cpu核数
+         * ③等待任务超时时间为60s
+         * ④任务队列为阻塞链表，容量为50000
+         * ⑤线程工厂重写方法
+         *   - 创建线程时，命名为 AsyncSenderExecutor_{num}
+         */
         this.defaultAsyncSenderExecutor = new ThreadPoolExecutor(
             Runtime.getRuntime().availableProcessors(),
             Runtime.getRuntime().availableProcessors(),
@@ -170,6 +191,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }
     }
 
+    //注册信息发送钩子
     public void registerSendMessageHook(final SendMessageHook hook) {
         this.sendMessageHookList.add(hook);
         log.info("register sendMessage Hook, {}", hook.hookName());
@@ -180,6 +202,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
     }
 
     public void start(final boolean startFactory) throws MQClientException {
+        //在实例创建时，serviceState 的默认值为 CREATE_JUST
         switch (this.serviceState) {
             case CREATE_JUST:
                 this.serviceState = ServiceState.START_FAILED;
@@ -238,7 +261,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
     /**
      * 检查producerGroup名称是否符合要求
-     * ①不允许为空（""或null都不行）
+     * ①不允许为空（"  "或null都不行）
      * ②长度不允许超过255
      * ③所包含的字符必须符合要求
      * ④不允许为默认名称——DEFAULT_PRODUCER
@@ -281,6 +304,9 @@ public class DefaultMQProducerImpl implements MQProducerInner {
         }
     }
 
+    /**
+     * 获取所有存在路由信息的 topic 名称
+     */
     @Override
     public Set<String> getPublishTopicList() {
         Set<String> topicList = new HashSet<String>();
@@ -1236,7 +1262,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
      * provided in next version
      *
      * @param msg
-     * @param selector
+     * @param selector`
      * @param arg
      * @param sendCallback
      * @param timeout the <code>sendCallback</code> will be invoked at most time
