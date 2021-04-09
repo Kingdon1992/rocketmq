@@ -823,7 +823,8 @@ public class DefaultMQProducerImpl implements MQProducerInner {
 
             byte[] prevBody = msg.getBody();
             try {
-                //for MessageBatch,ID has been set in the generating process（非批量发送，则生成并设置消息的唯一id）
+                //for MessageBatch,ID has been set in the generating process
+                //批量发送已经为每条 Message 都生成过id
                 if (!(msg instanceof MessageBatch)) {
                     //id生成算法比较复杂，跳过
                     MessageClientIDSetter.setUniqID(msg);
@@ -835,7 +836,7 @@ public class DefaultMQProducerImpl implements MQProducerInner {
                     topicWithNamespace = true;
                 }
 
-                //判断是否压缩消息
+                //判断是否压缩消息（批量消息目前不支持压缩）
                 int sysFlag = 0;
                 boolean msgBodyCompressed = false;
                 if (this.tryToCompressMessage(msg)) {

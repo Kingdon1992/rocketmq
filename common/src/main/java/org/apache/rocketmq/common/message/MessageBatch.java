@@ -25,6 +25,7 @@ import org.apache.rocketmq.common.MixAll;
 public class MessageBatch extends Message implements Iterable<Message> {
 
     private static final long serialVersionUID = 621335151046335557L;
+    //存储多条消息，其他字段和普通消息体一致
     private final List<Message> messages;
 
     private MessageBatch(List<Message> messages) {
@@ -44,6 +45,7 @@ public class MessageBatch extends Message implements Iterable<Message> {
         assert messages.size() > 0;
         List<Message> messageList = new ArrayList<Message>(messages.size());
         Message first = null;
+        //批量发送有几个前提必须满足，在此处进行校验
         for (Message message : messages) {
             if (message.getDelayTimeLevel() > 0) {
                 throw new UnsupportedOperationException("TimeDelayLevel is not supported for batching");
@@ -54,9 +56,11 @@ public class MessageBatch extends Message implements Iterable<Message> {
             if (first == null) {
                 first = message;
             } else {
+                //批量发送的消息，必须是发送到同一个 topic
                 if (!first.getTopic().equals(message.getTopic())) {
                     throw new UnsupportedOperationException("The topic of the messages in one batch should be the same");
                 }
+                //批量发送的消息，在是否等待刷盘的选择上，必须一致（不能有的要等，有的不等）
                 if (first.isWaitStoreMsgOK() != message.isWaitStoreMsgOK()) {
                     throw new UnsupportedOperationException("The waitStoreMsgOK of the messages in one batch should the same");
                 }

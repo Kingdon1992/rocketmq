@@ -129,6 +129,11 @@ public class MessageClientIDSetter {
         return buffer.array();
     }
 
+    /**
+     * 设置消息体的 id，
+     * - 如果消息体的属性中带有 "UNIQ_KEY" 属性，则使用该属性的值作为 id
+     * - 如果没有，则根据算法生成一个新的
+     */
     public static void setUniqID(final Message msg) {
         if (msg.getProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX) == null) {
             msg.putProperty(MessageConst.PROPERTY_UNIQ_CLIENT_MESSAGE_ID_KEYIDX, createUniqID());

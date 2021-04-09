@@ -85,7 +85,9 @@ public class RemotingCommand {
 
     private SerializeType serializeTypeCurrentRPC = serializeTypeConfigInThisServer;
 
-    //消息体内容
+    /**
+     * 消息体内容
+     */
     private transient byte[] body;
 
     protected RemotingCommand() {
